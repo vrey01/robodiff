@@ -1,0 +1,135 @@
+#!/usr/bin/env python
+
+from RoboDiff import RoboDiff
+import getopt
+import os
+import sys
+import logging
+import gevent
+import signal
+
+host = "160.103.50.80"
+portserv = 9020
+portcmd = 9100
+
+progname = os.path.basename( sys.argv[0] )
+log = logging.getLogger()
+
+def printUsage(progname, short=False):
+    print """%s [-dhvspHSC] [command [args]]""" % progname
+
+    if not short:
+        print """
+
+Options are:
+
+   -h : 
+       prints this help and quits
+
+   -v : 
+       prints RoboDiff version
+
+   -d : 
+       prints debugging messages
+
+   -s : 
+       sends stop command to RoboDiff and quits
+
+   -H :
+       host name (or ip address) of RoboDiff 
+
+   -S :
+       socket number for service socket
+
+   -C :
+       socket number for command socket
+
+   -p :
+       starts the program as a proxy server
+       in this case the arguments should be the two socket
+       numbers in which the proxy server will be serving
+
+Other than with options -h, -v, -s or -p)
+command and arguments can be executed via RoboDiff command socket if 
+provided in the command line.
+
+Commands and arguments should be separated by spaces (not with parenthesis
+or commas). The program will send the right syntax to RoboDiff
+
+"""
+
+def printVersion():
+    print RoboDiff.getVersion()
+
+def main():
+
+    global host, portserv, portcmd
+
+    dostop = False
+    try:
+       optlist, args = getopt.getopt(sys.argv[1:], "dhvspH:S:C:")
+    except:
+       print "wrong usage\n"
+       printUsage( progname )
+       sys.exit(1)
+
+    for o,a in optlist:
+       if o == "-v":
+          printVersion()
+          sys.exit(0)
+       elif o == "-h":
+          printUsage( progname )
+          sys.exit(0)
+       elif o == "-d":
+          log.setLevel( logging.DEBUG )
+       elif o == "-s":
+          dostop = True
+       elif o == "-H":
+          host = a
+       elif o == "-S":
+          portserv = a
+       elif o == "-C":
+          portcmd = a
+
+    robot = RoboDiff(host,portserv,portcmd)
+    robot.run()
+   
+    if dostop:
+       robot.stop()
+       sys.exit(0)
+
+    def sig_handler(*args):
+        print("Stopping robot.")
+        robot.stop()
+	sys.exit(0)
+
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+
+    if args:
+        if len(args) == 1:
+	    cmd = "%s()" % args[0]
+        elif len(args) > 1:
+	    cmd = "%s(%s)" % ( args[0], ",".join(args[1:]))
+	      
+        print "Executing command: %s" % cmd
+	
+        cmdid=robot.exec_command(cmd, wait=False)	 
+
+        while True: 
+           gevent.sleep(0.1)
+           if robot.get_state() != 1:
+	       print "Robot is ready. Getting answer"
+               print robot.get_cmd_result(cmdid)
+               break
+    else:
+        print "State: ",robot.get_state()
+        print "Power: ",robot.get_power()
+        print "Robot: ",robot.get_robot()
+        print "Speed: ",robot.get_speed()
+        print "Tool1: ",robot.get_position('tool1')
+
+    # robot.loop()
+
+if __name__ == '__main__':
+   main()
