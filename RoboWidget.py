@@ -53,7 +53,7 @@ class RoboWidget(QWidget):
     def switchPower(self):
         self.robot.switchPower()
 
-def test():
+def main():
     import signal
     def sig_handler(*args):
         print("Stopping robot.")
@@ -68,13 +68,12 @@ def test():
     win = QMainWindow()
     wid = RoboWidget()
 
-    #robot = RoboDiff(("160.103.50.80",9020,9100))
-    robot = RoboDiff()
-    wid.setRobot(robot)
+    robot = RoboDiff("160.103.50.80",9020,9100)
     win.setCentralWidget(wid)
     win.show()
 
+    wid.setRobot(robot)
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
-   test()
+   main()

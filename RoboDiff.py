@@ -52,20 +52,26 @@ class RobotSocket(asyncore.dispatcher):
     def reconnect(self):
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect((self.host, self.port))   
-        self.closed = False
 
     def handle_connect(self):
         log.debug("Connected to server: %s" % self.name)
 	self.settimeout(0.1)
-	log.debug("  conn message: %s" % self.recv(4096))
+        conn_msg = self.get_read()
+	log.debug(" - conn message: %s" % conn_msg)
 	self.settimeout(2)
-        log.debug(" - connected now")
+	if conn_msg:
+            log.debug(" - connected now")
+	    self.closed = False
+        else:
+	    self.closed = True
 
     def handle_close(self):
         self.close()
         self.closed = True
 
     def send_command(self,cmd, wait=False):
+        if self.closed:
+	    return None
         self.cmd_buffer = cmd + self.terminator
         self._cmd_no += 1
 	self._latest = cmd
@@ -91,14 +97,14 @@ class RobotSocket(asyncore.dispatcher):
 	self.cmd_pending = False
 
     def handle_read(self):
-        #self._answer = self.get_read()
-        self._answer = self.recv(4096)
+        self._answer = self.get_read()
+        #self._answer = self.recv(4096)
         self._waitanswer = False
 	self._read_no += 1
 
     def get_read(self):
         try: 
-            return self.recv(8192)
+            return self.recv(4096)
         except socket.timeout: 
 	    log.debug("Timeout reading")
             return None
@@ -134,7 +140,7 @@ class RobotService(RobotSocket):
 
     def check_status(self):
         if self.closed:
-	    print "reconnecting"
+	    log.debug("reconnecting")
             self.reconnect()
 
 	if time.time() - self.last_read_time < 0.01:
@@ -143,8 +149,7 @@ class RobotService(RobotSocket):
         else:
 	    self._read_no = self._cmd_no
 
-        self.send_command(self.status_cmd)
-	self._wait()
+        self.send_command(self.status_cmd, wait=True)
 
     def kill_task(self):
         if self.closed:
@@ -152,13 +157,13 @@ class RobotService(RobotSocket):
 
         if self._waitanswer:
             log.debug("(service socket) reading pending answer for (%s) before stopping task" % (self._latest))
-            #_answer = self.get_read()
-            _answer = self.recv(4096)
+            _answer = self.get_read()
+            #_answer = self.recv(4096)
         self.send_command(self.kill_cmd, wait=True)
 
     def handle_read(self):
-        #self._answer = self.get_read()
-        self._answer = self.recv(4096)
+        self._answer = self.get_read()
+        #self._answer = self.recv(4096)
 
         log.debug("(service socket) answer for (%s) got --%s--" % (self._latest, self._answer))
         if self._answer and self._latest is self.status_cmd:
@@ -199,7 +204,7 @@ class RobotService(RobotSocket):
 	       try:
                   self.state = int(components[2])
 	       except:
-	          print "Error parsing task state", part
+	          log.debug("Error parsing task state %s" % part)
 		  self.state = 10
 	    elif subsys == "robot":    
                self.robot = components[1]
@@ -244,11 +249,9 @@ class RobotCommand(RobotSocket):
 	self.cmd_sent = False
 
     def handle_read(self):
-	#self._answer = self.get_read()
-	self._answer = self.recv(4096)
+	self._answer = self.get_read()
+	#self._answer = self.recv(4096)
         log.debug("(command socket) read (%s) got %s" % (self.name, self._answer))
-	print "reading something"
-	print  self._answer
         self._waitanswer = False
 	self._read_no += 1
 
@@ -276,7 +279,7 @@ class RoboDiff:
 	cmd_state = self.cmd_conn.cmd_state()
 
 	if cmd_state:
-	    print("command pending")
+	    log.debug("command pending")
 	    self.need_one_read = True
             return 1	 
 
@@ -335,7 +338,6 @@ class RoboDiff:
             return cmdid
  
     def get_cmd_result(self,cmdid):
-	print("retrieving the result of latest command")
         return self.cmd_conn.get_cmd_result(cmdid)
 
     def update(self):
@@ -354,6 +356,8 @@ class RoboDiff:
             gevent.wait(timeout=0.01)
 
     def sync(self):
+        if self.service_conn.closed:
+	    return
         asyncore.loop(timeout=0.1, count=1)
         gevent.wait(timeout=0.01)
 
